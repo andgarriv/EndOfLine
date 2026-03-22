@@ -2,6 +2,8 @@ package us.l4_4.dp1.end_of_line.game;
 
 import java.time.Duration;
 import java.time.ZoneId;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -9,6 +11,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -43,6 +46,8 @@ import us.l4_4.dp1.end_of_line.playerachievement.PlayerAchievementService;
 
 @Service
 public class GameService {
+
+    private static final Locale STAT_LOCALE = Locale.forLanguageTag("es-ES");
 
     GameRepository gameRepository;
     PlayerRepository playerRepository;
@@ -673,11 +678,8 @@ public class GameService {
         Double avgRounds = gameRepository.getAverageRounds();
         Integer maxGamesPlayed = gameRepository.getMaxGamesPlayedByPlayer();
         Integer minGamesPlayed = gameRepository.getMinGamesPlayedByPlayer();
-        Duration maxGameDuration = gameRepository.getMaxGameDuration();
-        Duration minGameDuration = gameRepository.getMinGameDuration();
-        Double averageGameDurationInNanoseconds = gameRepository.getAverageGameDuration();
-        Long totalGameDurationInNanoseconds = gameRepository.getTotalGameDuration();
-        Double averageEnergyUsed = gameRepository.getAverageEnergyUsed();
+        DurationStatistics globalDurationStats = calculateDurationStatistics(getFinishedGames());
+        Double averageEnergyUsed = calculateAverageEnergyUsed();
 
         Map<Color, Long> colorUsageMap = new HashMap<>();
         for (Color color : Color.values()) {
@@ -703,7 +705,7 @@ public class GameService {
             stats.put("gamesFinished", String.valueOf(numberOfGamesFinished));
             stats.put("gamesPending", String.valueOf(numberOfGamesPending));
             stats.put("avgGames",
-                    String.format("%.1f", gameRepository.getTotalNumberOfGames().floatValue()
+                    String.format(STAT_LOCALE, "%.1f", gameRepository.getTotalNumberOfGames().floatValue()
                             / gameRepository.getNumberOPlayers().floatValue()));
             stats.put("mostUsedColor", mostUsedColor.getKey().name());
             stats.put("leastUsedColor", leastUsedColor.getKey().name());
@@ -730,7 +732,7 @@ public class GameService {
         }
 
         if (avgRounds != null) {
-            stats.put("avgRounds", String.format("%.1f", avgRounds));
+            stats.put("avgRounds", String.format(STAT_LOCALE, "%.1f", avgRounds));
         } else {
             stats.put("avgRounds", "N/A");
         }
@@ -748,36 +750,32 @@ public class GameService {
         }
 
         if (averageEnergyUsed != null) {
-            stats.put("averageEnergyUsed", String.format("%.2f", averageEnergyUsed));
+            stats.put("averageEnergyUsed", formatEnergyAverage(averageEnergyUsed));
         } else {
             stats.put("averageEnergyUsed", "N/A");
 
         }
 
-        if (maxGameDuration != null) {
-            stats.put("maxGameDuration", formatDuration(maxGameDuration));
+        if (globalDurationStats.maxDuration() != null) {
+            stats.put("maxGameDuration", formatDuration(globalDurationStats.maxDuration()));
         } else {
             stats.put("maxGameDuration", "N/A");
         }
 
-        if (minGameDuration != null) {
-            stats.put("minGameDuration", formatDuration(minGameDuration));
+        if (globalDurationStats.minDuration() != null) {
+            stats.put("minGameDuration", formatDuration(globalDurationStats.minDuration()));
         } else {
             stats.put("minGameDuration", "N/A");
         }
 
-        if (averageGameDurationInNanoseconds != null) {
-            Long averageGameDurationInSeconds = averageGameDurationInNanoseconds.longValue() / 1_000_000_000;
-            Duration averageGameDuration = Duration.ofSeconds(averageGameDurationInSeconds);
-            stats.put("averageGameDuration", formatDuration(averageGameDuration));
+        if (globalDurationStats.averageDuration() != null) {
+            stats.put("averageGameDuration", formatDuration(globalDurationStats.averageDuration()));
         } else {
             stats.put("averageGameDuration", "N/A");
         }
 
-        if (totalGameDurationInNanoseconds != null) {
-            Long totalGameDurationInSeconds = totalGameDurationInNanoseconds / 1_000_000_000;
-            Duration totalGameDuration = Duration.ofSeconds(totalGameDurationInSeconds);
-            stats.put("totalGameDuration", formatDuration(totalGameDuration));
+        if (globalDurationStats.totalDuration() != null) {
+            stats.put("totalGameDuration", formatDuration(globalDurationStats.totalDuration()));
         } else {
             stats.put("totalGameDuration", "N/A");
         }
@@ -794,11 +792,8 @@ public class GameService {
         Integer maxRounds = gameRepository.getMaxRoundsByPlayerId(playerId);
         Integer minRounds = gameRepository.getMinRoundsByPlayerId(playerId);
         Double avgRounds = gameRepository.getAverageRoundsByPlayerId(playerId);
-        Duration maxGameDuration = gameRepository.getMaxGameDurationByPlayerId(playerId);
-        Duration minGameDuration = gameRepository.getMinGameDurationByPlayerId(playerId);
-        Double averageGameDurationInNanoseconds = gameRepository.getAverageGameDurationByPlayerId(playerId);
-        Long totalGameDurationInNanoseconds = gameRepository.getTotalGameDurationByPlayerId(playerId);
-        Double averageEnergyUsed = gameRepository.getAverageEnergyUsedByPlayerId(playerId);
+        DurationStatistics playerDurationStats = calculateDurationStatistics(getFinishedGamesByPlayerId(playerId));
+        Double averageEnergyUsed = calculateAverageEnergyUsedByPlayerId(playerId);
         Integer maxWinStreak = calculateWinStreak(playerId).get(0);
         Integer currentWinStreak = calculateWinStreak(playerId).get(1);
         List<Object[]> colorUsage = gameRepository.getColorUsageByPlayerId(playerId);
@@ -834,41 +829,37 @@ public class GameService {
         }
 
         if (avgRounds != null) {
-            stats.put("avgRounds", String.format("%.1f", avgRounds));
+            stats.put("avgRounds", String.format(STAT_LOCALE, "%.1f", avgRounds));
         } else {
             stats.put("avgRounds", "N/A");
         }
 
-        if (maxGameDuration != null) {
-            stats.put("maxGameDuration", formatDuration(maxGameDuration));
+        if (playerDurationStats.maxDuration() != null) {
+            stats.put("maxGameDuration", formatDuration(playerDurationStats.maxDuration()));
         } else {
             stats.put("maxGameDuration", "N/A");
         }
 
-        if (minGameDuration != null) {
-            stats.put("minGameDuration", formatDuration(minGameDuration));
+        if (playerDurationStats.minDuration() != null) {
+            stats.put("minGameDuration", formatDuration(playerDurationStats.minDuration()));
         } else {
             stats.put("minGameDuration", "N/A");
         }
 
-        if (averageGameDurationInNanoseconds != null) {
-            Long averageGameDurationInSeconds = averageGameDurationInNanoseconds.longValue() / 1_000_000_000;
-            Duration averageGameDuration = Duration.ofSeconds(averageGameDurationInSeconds);
-            stats.put("avgGameDuration", formatDuration(averageGameDuration));
+        if (playerDurationStats.averageDuration() != null) {
+            stats.put("avgGameDuration", formatDuration(playerDurationStats.averageDuration()));
         } else {
             stats.put("avgGameDuration", "N/A");
         }
 
-        if (totalGameDurationInNanoseconds != null) {
-            Long totalGameDurationInSeconds = totalGameDurationInNanoseconds / 1_000_000_000;
-            Duration totalGameDuration = Duration.ofSeconds(totalGameDurationInSeconds);
-            stats.put("totalGameDuration", formatDuration(totalGameDuration));
+        if (playerDurationStats.totalDuration() != null) {
+            stats.put("totalGameDuration", formatDuration(playerDurationStats.totalDuration()));
         } else {
             stats.put("totalGameDuration", "N/A");
         }
 
         if (averageEnergyUsed != null) {
-            stats.put("averageEnergyUsed", String.format("%.2f", averageEnergyUsed));
+            stats.put("averageEnergyUsed", formatEnergyAverage(averageEnergyUsed));
         } else {
             stats.put("averageEnergyUsed", "N/A");
         }
@@ -895,6 +886,69 @@ public class GameService {
 
     private String formatDuration(Duration duration) {
         return String.format("%dh %dm %ds", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
+    }
+
+    private List<Game> getFinishedGames() {
+        return StreamSupport.stream(gameRepository.findAll().spliterator(), false)
+                .filter(game -> game.getEndedAt() != null)
+                .toList();
+    }
+
+    private List<Game> getFinishedGamesByPlayerId(int playerId) {
+        return gameRepository.findGamesByPlayerId(playerId).stream()
+                .filter(game -> game.getEndedAt() != null)
+                .toList();
+    }
+
+    private DurationStatistics calculateDurationStatistics(List<Game> games) {
+        if (games.isEmpty()) {
+            return new DurationStatistics(null, null, null, null);
+        }
+
+        List<Duration> durations = games.stream()
+                .map(game -> Duration.ofMillis(game.getEndedAt().getTime() - game.getStartedAt().getTime()))
+                .toList();
+
+        Duration maxDuration = durations.stream().max(Duration::compareTo).orElse(null);
+        Duration minDuration = durations.stream().min(Duration::compareTo).orElse(null);
+        long totalDurationInMillis = durations.stream().mapToLong(Duration::toMillis).sum();
+        Duration totalDuration = Duration.ofMillis(totalDurationInMillis);
+        Duration averageDuration = Duration.ofMillis(totalDurationInMillis / durations.size());
+
+        return new DurationStatistics(maxDuration, minDuration, averageDuration, totalDuration);
+    }
+
+    private Double calculateAverageEnergyUsed() {
+        return StreamSupport.stream(gamePlayerRepository.findAll().spliterator(), false)
+                .mapToInt(gamePlayer -> 3 - gamePlayer.getEnergy())
+                .average()
+                .stream()
+                .boxed()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Double calculateAverageEnergyUsedByPlayerId(int playerId) {
+        return StreamSupport.stream(gamePlayerRepository.findAll().spliterator(), false)
+                .filter(gamePlayer -> gamePlayer.getPlayer() != null && gamePlayer.getPlayer().getId() == playerId)
+                .mapToInt(gamePlayer -> 3 - gamePlayer.getEnergy())
+                .average()
+                .stream()
+                .boxed()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String formatEnergyAverage(double averageEnergyUsed) {
+        BigDecimal rounded = BigDecimal.valueOf(averageEnergyUsed).setScale(2, RoundingMode.CEILING);
+        return rounded.toPlainString().replace('.', ',');
+    }
+
+    private record DurationStatistics(
+            Duration maxDuration,
+            Duration minDuration,
+            Duration averageDuration,
+            Duration totalDuration) {
     }
 
     private List<Integer> calculateWinStreak(int playerId) {
