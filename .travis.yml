@@ -1,6 +1,6 @@
 dist: trusty
 language: java
-jdk: oraclejdk8
+jdk: openjdk21
 services:
   - mysql
 before_install:

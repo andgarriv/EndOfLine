@@ -21,7 +21,7 @@ gets populated at startup with data. The INSERTs are specified in the file data.
 
 ### Prerequisites
 The following items should be installed in your system:
-* Java 17 or newer.
+* Java 21 or newer.
 * Node.js 18 or newer.
 * git command line tool (https://help.github.com/articles/set-up-git).
 * Your preferred IDE.
